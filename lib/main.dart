@@ -1,10 +1,15 @@
-import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:timer_app/add_page.dart';
+import 'firebase_options.dart';
+import 'package:timer_app/user.dart';
 
-import 'next_page.dart';
-
-void main() {
+void main() async{
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+  options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -17,16 +22,16 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: ThemeData(
+
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'タイマー'),
+      home: const MyHomePage(title: '誕生日リスト'),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  // titleを外から貰ってきてstringに代入
   const MyHomePage({super.key, required this.title});
 
   final String title;
@@ -36,23 +41,28 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _second = 0;
-  int _minute = 0;
-  int _millisecond = 0;
-  // ?つけるとデフォルトでNULL
-  Timer? _timer;
-  bool _isRunning = false;
+
+  List<User> users = [];
 
   @override
-  // 最初に呼び出される関数
-  void initState() {
+  void initState(){
     super.initState();
+
+    _fetcFirebaseData();
   }
 
-  void _incrementCounter() {
+  void _fetcFirebaseData() async{
+    final db = FirebaseFirestore.instance;
+
+    final event = await db.collection("users").get();
+    final docs = event.docs;
+    final users = docs.map((doc) => User.fromFirestore(doc)).toList();
+
     setState(() {
-      _second++;
+        // thisはグローバル
+        this.users = users;
     });
+
   }
 
   @override
@@ -62,90 +72,89 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: Center(
-        child: Column(
-          // センターに配置する
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '${_formatNuber(_minute)} : ${_formatNuber(_second)} . ${_formatNuber(_millisecond)}',
-              style: TextStyle(fontSize: 65),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                toggleTimer();
+      body: ListView(
+        children: users
+        .map((user) => ListTile(
+          title: Text(user.first),
+          subtitle: Text(user.last),
+          trailing: Text(user.born.toString()),
+
+          onTap:(){
+            showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("Select Year"),
+          content: Container(
+            width: 300,
+            height: 300,
+            child: YearPicker(
+              firstDate: DateTime(DateTime.now().year - 100, 1),
+              lastDate: DateTime(DateTime.now().year + 100, 1),
+              initialDate: DateTime.now(),
+            
+              selectedDate: DateTime(int.parse(user.born)),
+              onChanged: (DateTime dateTime) {            
+                FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.id)
+                      .update({
+                        'born': dateTime.year
+                        });
+                Navigator.pop(context);
+
+                _fetcFirebaseData();
+            
               },
-              // ? tureの処理　falseの処理
-              child: Text(_isRunning ? 'ストップ' : 'スタート',
-              style: TextStyle(color: _isRunning ? Colors.red : Colors.green,
-              fontWeight: FontWeight.bold),
-              ),
             ),
-            ElevatedButton(
-              onPressed: () {
-                resetTimer();
-              },
-              // ? tureの処理　falseの処理
-              child: Text(
-              'リセット',
-                style: TextStyle(color:Colors.black,
-                fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
+          ),
+        );
+      },
+    );
+          },
+
+          onLongPress: () async{
+            showDialog(
+                context: context,
+                builder: (context) {
+                  return AlertDialog(
+                    title: Text("削除"),
+                    content: Text("このリストデータを削除しますか？"),
+                    actions: [
+                      TextButton(
+                        child: Text("Cancel"),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      TextButton(
+                        child: Text("OK"),
+                        onPressed: () async {
+                          final db = FirebaseFirestore.instance;
+                          await db.collection("users").doc(user.id).delete();
+                          _fetcFirebaseData();
+                          Navigator.pop(context); // ダイアログを閉じる
+                        },
+                      ),
+                    ],
+                  );
+                },
+              );
+            _fetcFirebaseData();
+          },
+          )).toList(),
         ),
-      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _goToAddPage,
+        tooltip: 'Increment',
+        child: const Icon(Icons.add),
+      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 
-  String _formatNuber(int number) {
-    return NumberFormat('00').format(number);
-  }
-
-  void toggleTimer(){
-    if (_isRunning){
-      _timer?.cancel();
-    }
-    else{
-      _timer = Timer.periodic(
-        const Duration(milliseconds: 10), 
-        (timer) {
-          setState(() {
-            _millisecond++;
-            if (_millisecond > 100){
-              _millisecond = 0;
-              _second++;
-            }
-            if(_second > 60){
-              _second = 0;
-              _minute++;
-            }
-            if(_minute == 1 && _millisecond == 0){
-              _timer?.cancel();
-              _isRunning = false;
-              
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => NextPage()),
-              );
-            }
-          });
-        },
-      );
-    }
-    setState(() {
-      // 逆にする
-      _isRunning = !_isRunning;
-    });
-  }
-
-  void resetTimer() {
-    _timer?.cancel();
-    setState(() {
-      _second = 0;
-      _millisecond = 0;
-      _minute = 0;
-      _isRunning = false;
-    });
+  void _goToAddPage()async{
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => AddPage()),
+    );
+    _fetcFirebaseData();
   }
 }
